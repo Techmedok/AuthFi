@@ -39,6 +39,16 @@ def PasswordResetMail(username, email, ResetKey):
         db.PasswordReset.insert_one({'UserName': username, 'ResetKey': ResetKey, 'CreatedAt': currenttime, 'ExpirationTime': currenttime + timedelta(hours=6)})
         db.PasswordReset.create_index('ExpirationTime', expireAfterSeconds=0)
 
+def AccountUnlockMail(userid, email, UnlockKey, AddDB):
+    subject = "Secure Connect - Password Reset"
+    link = "http://localhost:5000/unlock/" + str(UnlockKey)
+    body = "Password Reset Code: " + str(UnlockKey) + f" {link}"
+    if Mail.SendMail(subject, body, email):
+        currenttime = datetime.utcnow()
+        if AddDB:
+            db.UserUnlockAccount.insert_one({'UserID': userid, 'UnlockKey': UnlockKey, 'CreatedAt': currenttime, 'ExpirationTime': currenttime + timedelta(hours=6)})
+            db.UserUnlockAccount.create_index('ExpirationTime', expireAfterSeconds=0)
+
 def GenerateSessionKey(length=32):
     SessionKey = secrets.token_hex(length // 2)
     return SessionKey

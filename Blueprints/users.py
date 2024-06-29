@@ -5,7 +5,9 @@ import re
 import pyotp
 from Modules import AES256, Auth, SHA256, Functions
 from db import mongo
+from pymongo import ASCENDING
 import requests
+# import datetime
 
 UserBP = Blueprint('users', __name__)
 
@@ -14,12 +16,14 @@ def LoggedInUser(view_func):
     def decorated_function(*args, **kwargs):
         if 'key' in session and 'username' in session and 'role' not in session:
             session_key = session['key']
-            username = session['username']
+            # username = session['username']
+            userid = session['userid']
             useragent = request.headers.get('User-Agent')
             ipaddress = request.remote_addr
             user_session = mongo.db.UserSessions.find_one({
                 'SessionKey': session_key,
-                'UserName': username,
+                # 'UserName': username,
+                'UserID': userid,
                 'UserAgent': useragent,
                 'IPAddress': ipaddress,
                 'ExpirationTime': {'$gt': datetime.now(timezone.utc)}
@@ -106,7 +110,16 @@ def Registration():
 
         Auth.SendVerificationEmail(username, email, Auth.GenerateVerificationCode())
 
-        mongo.db.Users.insert_one({'UserID': userid, 'UserName': username, 'Name': nameE, 'Email': email, 'Password': passwordH, 'DateCreated': datecreated})
+        mongo.db.Users.insert_one({
+            'UserID': userid, 
+            'UserName': username, 
+            'Name': nameE, 
+            'Email': email, 
+            'Password': passwordH, 
+            'DateCreated': datecreated,
+            'Locked': False
+        })
+
         mongo.db.UserPermissions.insert_one({'UserID': userid, "SitePermissions": None})
 
         return redirect(url_for('users.VerifyAccount', username=username))
@@ -132,6 +145,12 @@ def VerifyAccount(username):
             return redirect(url_for('users.VerifyAccount', username=username))
 
     return render_template('Users/VerifyAccount.html', username=username)
+
+# def LockAccount(UserID, Lock):
+#     mongo.db.Users.update_one({'UserID': UserID}, {'$set': {'Locked': Lock}})
+#     return True
+
+
 
 @UserBP.route('/login', methods=['GET', 'POST'])
 @NotLoggedInUser
@@ -183,10 +202,62 @@ def Login():
         else:
             user = mongo.db.Users.find_one({'UserName': login})
 
-        if not user:
-            flash('Invalid Login or Password', 'error')
+        if user["Locked"]:
+            # Key = mongo.db.UserUnlockAccount.find_one({'UserID': user["UserID"]})
+            
+            # if Key:
+            #     UnlockKey = Key["UnlockKey"]
+            #     Auth.AccountUnlockMail(user["UserID"], user["Email"], UnlockKey, False)
+            # else:
+            #     UnlockKey = AES256.GenerateRandomString(32)
+            #     Auth.AccountUnlockMail(user["UserID"], user["Email"], UnlockKey, True)      
+            Functions.SendUnlockKey(user)
+            flash('Account Locked! Check your E-Mail to Reactivate the Account', 'error')
             return redirect(url_for('users.Login'))
 
+        if user:
+            UserLoginAttempts = list(mongo.db.UserLoginAttempts.find({'UserID': user["UserID"]}))
+
+            StatusCounts = {'Success': 0, 'Failed': 0}
+            ReasonCounts = {
+                'Password Correct, 2FA Correct': 0,
+                'Password Incorrect': 0,
+                'Password Correct': 0,
+                'Password Correct, 2FA Incorrect': 0
+            }
+
+            for Attempt in UserLoginAttempts:
+                Status = Attempt['Status']
+                Reason = Attempt['Reason']
+                
+                if Status in StatusCounts:
+                    StatusCounts[Status] += 1
+                
+                if Reason in ReasonCounts:
+                    ReasonCounts[Reason] += 1
+
+            if ReasonCounts["Password Incorrect"] >= 5:
+                Functions.LockAccount(user["UserID"], True)
+                Functions.SendUnlockKey(user)
+                flash('Account Locked! Multiple Incorrect Login Attempts Detected. Check your E-Mail to Reactivate the Account.', 'error')
+                return redirect(url_for('users.Login'))
+                
+            elif ReasonCounts["Password Correct, 2FA Incorrect"] >= 5:
+                Functions.LockAccount(user["UserID"], True)
+                Functions.SendUnlockKey(user)            
+                flash('Account Locked! Multiple Incorrect Login Attempts Detected. Check your E-Mail to Reactivate the Account.', 'error')
+                return redirect(url_for('users.Login'))
+              
+            elif (StatusCounts["Success"] + StatusCounts["Failed"]) >= 15:
+                Functions.LockAccount(user["UserID"], True)
+                Functions.SendUnlockKey(user)
+                flash('Account Locked! Multiple Login Attempts Detected. Check your E-Mail to Reactivate the Account.', 'error')
+                return redirect(url_for('users.Login'))
+
+        else:
+            flash('Invalid Login or Password', 'error')
+            return redirect(url_for('users.Login'))
+        
         if not Auth.IsUserVerified(user["UserName"]):
             flash('User not verified! Please complete the OTP verification', 'error')
             return redirect(url_for('users.VerifyAccount', username=user["UserName"]))
@@ -210,7 +281,8 @@ def Login():
 
             mongo.db.UserSessions.insert_one({
                 'SessionKey': sessionkey,
-                'UserName': user["UserName"],
+                # 'UserName': user["UserName"],
+                'UserID': user["UserID"],
                 'UserAgent': useragent,
                 'IPAddress': ipaddress,
                 'CreatedAt': currenttime,
@@ -219,16 +291,19 @@ def Login():
             mongo.db.UserSessions.create_index('ExpirationTime', expireAfterSeconds=0)
 
             UserLoginAttemptData = {
-                'UserName': user["UserName"],
+                # 'UserName': user["UserName"],
+                'UserID': user["UserID"],
                 'Status': 'Success',
                 'Reason': 'Password Correct'
             }
+
             UserLoginAttemptData.update(SessionData)
             mongo.db.UserLoginAttempts.insert_one(UserLoginAttemptData) 
             mongo.db.UserLoginAttempts.create_index('ExpirationTime', expireAfterSeconds=0)
 
             session['key'] = sessionkey
             session['username'] = user["UserName"]
+            session['userid'] = user["UserID"]
 
             next_url = request.args.get('next')  
             if next_url:
@@ -237,7 +312,8 @@ def Login():
             return redirect(url_for('users.Index'))
         else:
             UserLoginAttemptData = {
-                'UserName': user["UserName"],
+                # 'UserName': user["UserName"],
+                'UserID': user["UserID"],
                 'Status': 'Failed',
                 'Reason': 'Password Incorrect'
             }
@@ -250,6 +326,36 @@ def Login():
     
     return render_template('Users/Login.html')
 
+@UserBP.route('/unlock/<UnlockKey>', methods=['GET'])
+@NotLoggedInUser
+def Unlock(UnlockKey):
+    Key = mongo.db.UserUnlockAccount.find_one({'UnlockKey': UnlockKey})
+
+    if Key:
+        UserLoginAttempts = list(mongo.db.UserLoginAttempts.find({'UserID': Key["UserID"]}))
+
+        if UserLoginAttempts:
+            mongo.db.UserLoginAttempts.delete_many({'UserID': Key["UserID"]})
+
+            for Attempts in UserLoginAttempts:
+                for key in ['_id', 'ScreenResolution', 'DeviceDate', 'DeviceTime', 'Latitude', 'Longitude', 'Language', 'ExpirationTime', 'UserAgent', 'ISP']:
+                    if key in Attempts:
+                        del Attempts[key]
+                Attempts['ExpirationTime'] = Attempts['CreatedAt'] + timedelta(minutes=1) # Change on Prod: timedelta(days=7)
+
+            mongo.db.UserLoginAttemptsHistory.insert_many(UserLoginAttempts)
+            mongo.db.UserLoginAttemptsHistory.create_index([('ExpirationTime', ASCENDING)], expireAfterSeconds=0)
+
+        Functions.LockAccount(Key["UserID"], False)
+        mongo.db.UserUnlockAccount.delete_one({'UserID': Key["UserID"]})
+    
+        flash('Account Unlocked Successfully! Login Now.', 'error')
+        return redirect(url_for('users.Login'))
+
+    else:
+        flash('Incorrect Unlock Key! Try Again.', 'error')
+        return redirect(url_for('users.Login'))
+    
 @UserBP.route('/verify2fa', methods=['GET', 'POST'])
 @NotLoggedInUser
 def Verify2FA():
@@ -258,16 +364,73 @@ def Verify2FA():
 
     username = session['2fa_user']
     user = mongo.db.Users.find_one({'UserName': username})
-
     next_url = session.get('next_url')
+
+    if user["Locked"]:
+        # Key = mongo.db.UserUnlockAccount.find_one({'UserID': user["UserID"]})
+        
+        # if Key:
+        #     UnlockKey = Key["UnlockKey"]
+        #     Auth.AccountUnlockMail(user["UserID"], user["Email"], UnlockKey, False)
+        # else:
+        #     UnlockKey = AES256.GenerateRandomString(32)
+        #     Auth.AccountUnlockMail(user["UserID"], user["Email"], UnlockKey, True)      
+        Functions.SendUnlockKey(user)
+        flash('Account Locked! Check your E-Mail to Reactivate the Account', 'error')
+        return redirect(url_for('users.Login'))
+
+    # if user["Locked"]:
+    #     Key = mongo.db.UserUnlockAccount.find_one({'UserID': user["UserID"]})
+        
+    #     if Key:
+    #         UnlockKey = Key["UnlockKey"]
+    #         Auth.AccountUnlockMail(user["UserID"], user["Email"], UnlockKey, False)
+    #     else:
+    #         UnlockKey = AES256.GenerateRandomString(32)
+    #         Auth.AccountUnlockMail(user["UserID"], user["Email"], UnlockKey, True)      
+
+    #     flash('Account Locked! Check your E-Mail to Reactivate the Account', 'error')
+    #     return redirect(url_for('users.Login'))
+        
+    if user:
+        UserLoginAttempts = list(mongo.db.UserLoginAttempts.find({'UserID': user["UserID"]}))
+
+        ReasonCounts = {
+            'Password Correct, 2FA Correct': 0,
+            'Password Incorrect': 0,
+            'Password Correct': 0,
+            'Password Correct, 2FA Incorrect': 0
+        }
+
+        for Attempt in UserLoginAttempts:
+            Reason = Attempt['Reason']
+            
+            if Reason in ReasonCounts:
+                ReasonCounts[Reason] += 1
+
+        if ReasonCounts["Password Correct, 2FA Incorrect"] >= 5:
+            Functions.LockAccount(user["UserID"], True)
+            # Key = mongo.db.UserUnlockAccount.find_one({'UserID': user["UserID"]})
+            # if Key:
+            #     UnlockKey = Key["UnlockKey"]
+            #     Auth.AccountUnlockMail(user["UserID"], user["Email"], UnlockKey, False)
+            # else:
+            #     UnlockKey = AES256.GenerateRandomString(32)
+            #     Auth.AccountUnlockMail(user["UserID"], user["Email"], UnlockKey, True)
+            Functions.SendUnlockKey(user)
+
+            flash('Account Locked! Multiple Incorrect Login Attempts Detected. Check your E-Mail to Reactivate the Account.', 'error')
+            return redirect(url_for('users.Login'))
+    
+    else:
+        flash('Invalid Login or Password', 'error')
+        return redirect(url_for('users.Login'))      
 
     if request.method == 'POST':
         entered_otp = request.form['otp']
         totp_secret = user.get('TwoFactorSecret', '')
-
         SessionData = session.get('SessionData')
-        session.pop('SessionData')
-
+        
         next_url = session.get('next_url')
         if next_url:
             session.pop('next_url')
@@ -286,7 +449,8 @@ def Verify2FA():
             currenttime = datetime.now(timezone.utc)
             mongo.db.UserSessions.insert_one({
                 'SessionKey': sessionkey,
-                'UserName': user["UserName"],
+                # 'UserName': user["UserName"],
+                'UserID': user["UserID"],
                 'UserAgent': useragent,
                 'IPAddress': ipaddress,
                 'CreatedAt': currenttime,
@@ -295,7 +459,8 @@ def Verify2FA():
             mongo.db.UserSessions.create_index('ExpirationTime', expireAfterSeconds=0)
 
             UserLoginAttemptData = {
-                'UserName': user["UserName"],
+                # 'UserName': user["UserName"],
+                'UserID': user["UserID"],
                 'Status': 'Success',
                 'Reason': 'Password Correct, 2FA Correct'
             }
@@ -305,7 +470,10 @@ def Verify2FA():
 
             session['key'] = sessionkey
             session['username'] = user["UserName"]
+            session['userid'] = user["UserID"]
+
             session.pop('2fa_user')
+            session.pop('SessionData')
 
             if next_url:
                 if is_safe_url(next_url):
@@ -314,7 +482,8 @@ def Verify2FA():
                 return redirect(url_for('users.Index'))
         else:
             UserLoginAttemptData = {
-                'UserName': user["UserName"],
+                # 'UserName': user["UserName"],
+                'UserID': user["UserID"],
                 'Status': 'Failed',
                 'Reason': 'Password Correct, 2FA Incorrect'
             }
@@ -380,10 +549,11 @@ def ResetPassword(ResetKey):
 @LoggedInUser
 def Logout():
     session_key = session['key']
-    username = session['username']
-    UserSessionDelete = mongo.db.UserSessions.delete_one({
+    # username = session['username']
+    userid = session['userid']
+    mongo.db.UserSessions.delete_one({
         'SessionKey': session_key,
-        'UserName': username
+        'UserID': userid
     })
     session.clear()
     return redirect(url_for('users.Index'))
