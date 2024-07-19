@@ -6,7 +6,7 @@ def SendMail(subject, body, to):
     email = "secureconnect@techmedok.com"
     password = "fajVY0vNBcQuUUG0T7NVyf4cxEahfmvsws6cZuqCh2UhbBv33wB6VWfvxgcrqa8P"
     message = MIMEMultipart()
-    message["From"] = f"Secure Connect <{email}>"
+    message["From"] = f"AuthFi <{email}>"
     message["To"] = to
     message["Subject"] = subject
     message.attach(MIMEText(body, "plain"))
