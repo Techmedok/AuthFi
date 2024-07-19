@@ -7,7 +7,6 @@ from Modules import AES256, Auth, SHA256, Functions
 from db import mongo
 from pymongo import ASCENDING
 import requests
-# import datetime
 
 UserBP = Blueprint('users', __name__)
 
@@ -123,7 +122,6 @@ def Registration():
         mongo.db.UserPermissions.insert_one({'UserID': userid, "SitePermissions": None})
 
         return redirect(url_for('users.VerifyAccount', username=username))
-    
     return render_template('Users/Register.html')
 
 @UserBP.route('/verifyaccount/<username>', methods=['GET', 'POST'])
@@ -150,8 +148,6 @@ def VerifyAccount(username):
 #     mongo.db.Users.update_one({'UserID': UserID}, {'$set': {'Locked': Lock}})
 #     return True
 
-
-
 @UserBP.route('/login', methods=['GET', 'POST'])
 @NotLoggedInUser
 def Login():
@@ -167,6 +163,8 @@ def Login():
         time = request.form.get('time')
         useragent = request.headers.get('User-Agent')
         ipaddress = request.remote_addr
+
+        # if js collected invisible input blank then consider it as bot
 
         # Remove in Prod
         ipcheck = ipaddress
@@ -202,15 +200,7 @@ def Login():
         else:
             user = mongo.db.Users.find_one({'UserName': login})
 
-        if user["Locked"]:
-            # Key = mongo.db.UserUnlockAccount.find_one({'UserID': user["UserID"]})
-            
-            # if Key:
-            #     UnlockKey = Key["UnlockKey"]
-            #     Auth.AccountUnlockMail(user["UserID"], user["Email"], UnlockKey, False)
-            # else:
-            #     UnlockKey = AES256.GenerateRandomString(32)
-            #     Auth.AccountUnlockMail(user["UserID"], user["Email"], UnlockKey, True)      
+        if user["Locked"]:      
             Functions.SendUnlockKey(user)
             flash('Account Locked! Check your E-Mail to Reactivate the Account', 'error')
             return redirect(url_for('users.Login'))
@@ -341,7 +331,7 @@ def Unlock(UnlockKey):
                 for key in ['_id', 'ScreenResolution', 'DeviceDate', 'DeviceTime', 'Latitude', 'Longitude', 'Language', 'ExpirationTime', 'UserAgent', 'ISP']:
                     if key in Attempts:
                         del Attempts[key]
-                Attempts['ExpirationTime'] = Attempts['CreatedAt'] + timedelta(minutes=1) # Change on Prod: timedelta(days=7)
+                Attempts['ExpirationTime'] = Attempts['CreatedAt'] + timedelta(hours=6) # Change on Prod: timedelta(days=7)
 
             mongo.db.UserLoginAttemptsHistory.insert_many(UserLoginAttempts)
             mongo.db.UserLoginAttemptsHistory.create_index([('ExpirationTime', ASCENDING)], expireAfterSeconds=0)
@@ -366,31 +356,10 @@ def Verify2FA():
     user = mongo.db.Users.find_one({'UserName': username})
     next_url = session.get('next_url')
 
-    if user["Locked"]:
-        # Key = mongo.db.UserUnlockAccount.find_one({'UserID': user["UserID"]})
-        
-        # if Key:
-        #     UnlockKey = Key["UnlockKey"]
-        #     Auth.AccountUnlockMail(user["UserID"], user["Email"], UnlockKey, False)
-        # else:
-        #     UnlockKey = AES256.GenerateRandomString(32)
-        #     Auth.AccountUnlockMail(user["UserID"], user["Email"], UnlockKey, True)      
+    if user["Locked"]:    
         Functions.SendUnlockKey(user)
         flash('Account Locked! Check your E-Mail to Reactivate the Account', 'error')
         return redirect(url_for('users.Login'))
-
-    # if user["Locked"]:
-    #     Key = mongo.db.UserUnlockAccount.find_one({'UserID': user["UserID"]})
-        
-    #     if Key:
-    #         UnlockKey = Key["UnlockKey"]
-    #         Auth.AccountUnlockMail(user["UserID"], user["Email"], UnlockKey, False)
-    #     else:
-    #         UnlockKey = AES256.GenerateRandomString(32)
-    #         Auth.AccountUnlockMail(user["UserID"], user["Email"], UnlockKey, True)      
-
-    #     flash('Account Locked! Check your E-Mail to Reactivate the Account', 'error')
-    #     return redirect(url_for('users.Login'))
         
     if user:
         UserLoginAttempts = list(mongo.db.UserLoginAttempts.find({'UserID': user["UserID"]}))
@@ -410,13 +379,6 @@ def Verify2FA():
 
         if ReasonCounts["Password Correct, 2FA Incorrect"] >= 5:
             Functions.LockAccount(user["UserID"], True)
-            # Key = mongo.db.UserUnlockAccount.find_one({'UserID': user["UserID"]})
-            # if Key:
-            #     UnlockKey = Key["UnlockKey"]
-            #     Auth.AccountUnlockMail(user["UserID"], user["Email"], UnlockKey, False)
-            # else:
-            #     UnlockKey = AES256.GenerateRandomString(32)
-            #     Auth.AccountUnlockMail(user["UserID"], user["Email"], UnlockKey, True)
             Functions.SendUnlockKey(user)
 
             flash('Account Locked! Multiple Incorrect Login Attempts Detected. Check your E-Mail to Reactivate the Account.', 'error')

@@ -308,6 +308,9 @@ def AddSite():
 @SiteBP.route('/verifysite/<SiteID>', methods=['GET', 'POST'])
 @LoggedInSite
 def VerifySite(SiteID):
+    if mongo.db.Sites.find_one({'SiteID': SiteID, "Verified": True}):
+        return redirect(url_for('site.Index'))
+    
     UserName = session['UserNameSite']
     if request.method == 'POST':
         UserData = mongo.db.SiteUsers.find_one({'UserName': UserName})
@@ -317,6 +320,7 @@ def VerifySite(SiteID):
 
         if SiteCheck.CheckTXTRecord(SiteURL, SiteID):
             mongo.db.Sites.update_one({'SiteID': SiteID}, {"$set": {"Verified": True}})
+            return redirect(url_for('site.Index'))
 
         # EnteredVerificationCode = request.form['VerificationCode']
         # VerificationAccount = mongo.db.UserVerification.find_one({'UserName': username, 'Verified': False})

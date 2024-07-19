@@ -29,6 +29,7 @@ def Index():
         IsLoggedIn = True
     else:
         IsLoggedIn = False
+        
     return render_template('Index.html', IsLoggedIn=IsLoggedIn)
 
 @app.route('/assets/<path:filename>')
