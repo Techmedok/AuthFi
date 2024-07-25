@@ -111,6 +111,29 @@
     <script>
         var hasClickedSubmit = false;
 
+        function validateName() {
+            // Check if the submit button has been clicked
+            if (!hasClickedSubmit) return;
+
+            var name = document.getElementById("name").value;
+            var nameError = document.getElementById("nameError");
+            var nameInput = document.getElementById("name");
+
+            // Reset error message and remove the error class
+            nameError.innerHTML = "";
+            nameInput.classList.remove("ring-red-300");
+
+            // Validate name
+            var namePattern = /^[a-zA-Z]+$/;
+            if (name.trim() === "") {
+                nameError.innerHTML = "Enter your name";
+                nameInput.classList.add("ring-red-300");
+            } else if (!namePattern.test(name)) {
+                nameError.innerHTML = "Name should only contain alphabets";
+                nameInput.classList.add("ring-red-300");
+            }
+        }
+
 
 
 
