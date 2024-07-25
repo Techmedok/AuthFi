@@ -124,18 +124,15 @@
             nameInput.classList.remove("ring-red-300");
 
             // Validate name
-            var namePattern = /^[a-zA-Z]+$/;
+            var namePattern = /^[a-zA-Z\s]+$/;
             if (name.trim() === "") {
                 nameError.innerHTML = "Enter your name";
                 nameInput.classList.add("ring-red-300");
             } else if (!namePattern.test(name)) {
-                nameError.innerHTML = "Name should only contain alphabets";
+                nameError.innerHTML = "Name should only contain alphabets and spaces";
                 nameInput.classList.add("ring-red-300");
             }
         }
-
-
-
 
         function validateUsername() {
             // Check if the submit button has been clicked
