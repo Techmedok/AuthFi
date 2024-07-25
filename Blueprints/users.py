@@ -171,29 +171,29 @@ def Login():
         if ipcheck=="127.0.0.1":
             ipcheck="152.58.213.171"
 
-        response = requests.get('https://api.findip.net/' + ipcheck + '/?token=9760606036624d2d99873fd9bd59aea9') # Replace 'ipcheck' with 'ipaddress'
-        ipdetails = response.json()
+        response = requests.get('https://api.findip.net/' + ipcheck + '/?token=9760606036624d2d99873fd9bd59aea9')
+        ipdetails = response.json() if response.status_code == 200 else {}
 
         currenttime = datetime.now(timezone.utc)
 
         SessionData = {
-                    "IPAddress": ipaddress, # Replace 'ipcheck' with 'ipaddress'
-                    "UserAgent": useragent,
-                    "Platform": platform,
-                    "Language": language,
-                    "ScreenResolution": screen_resolution,
-                    "TimeZone": timezone_offset,
-                    "DeviceDate": date,
-                    "DeviceTime": time,
-                    "City": ipdetails.get('city', {}).get('names', {}).get('en', None),
-                    "Country": ipdetails.get('country', {}).get('names', {}).get('en', None),
-                    "Latitude": ipdetails.get('location', {}).get('latitude', None),
-                    "Longitude": ipdetails.get('location', {}).get('longitude', None),
-                    "TimeZone": ipdetails.get('location', {}).get('time_zone', None),
-                    "ISP": ipdetails.get('traits', {}).get('isp', None),
-                    'CreatedAt': currenttime,
-                    'ExpirationTime': currenttime + timedelta(hours=6)
-                }    
+            "IPAddress": ipaddress,
+            "UserAgent": useragent,
+            "Platform": platform,
+            "Language": language,
+            "ScreenResolution": screen_resolution,
+            "TimeZone": timezone_offset,
+            "DeviceDate": date,
+            "DeviceTime": time,
+            "City": ipdetails.get('city', {}).get('names', {}).get('en'),
+            "Country": ipdetails.get('country', {}).get('names', {}).get('en'),
+            "Latitude": ipdetails.get('location', {}).get('latitude'),
+            "Longitude": ipdetails.get('location', {}).get('longitude'),
+            "TimeZone": ipdetails.get('location', {}).get('time_zone'),
+            "ISP": ipdetails.get('traits', {}).get('isp'),
+            'CreatedAt': currenttime,
+            'ExpirationTime': currenttime + timedelta(hours=6)
+        }   
 
         if "@" in login:
             user = mongo.db.Users.find_one({'Email': login})
@@ -296,6 +296,7 @@ def Login():
             session['userid'] = user["UserID"]
 
             next_url = request.args.get('next')  
+            print(next_url)
             if next_url:
                 if is_safe_url(next_url):
                     return redirect(next_url)
@@ -660,9 +661,11 @@ def Dashboard():
     UserID = User["UserID"]
     UserPermissionsData = mongo.db.UserPermissions.find_one({'UserID': UserID})
 
+    print(UserPermissionsData)
     UserPermissions = []
 
-    if UserPermissionsData and 'SitePermissions' in UserPermissionsData:
+    # if UserPermissionsData and 'SitePermissions' in UserPermissionsData:
+    if UserPermissionsData and 'SitePermissions' in UserPermissionsData and UserPermissionsData['SitePermissions'] is not None:
         SiteIDs = list(UserPermissionsData['SitePermissions'].keys())
 
         for SiteID in SiteIDs:
@@ -684,7 +687,8 @@ def Dashboard():
                 'SiteName': SiteName,
                 'Permissions': permissions_str
             })
-            
+    else:
+        SiteIDs = []       
     return render_template("Users/Dashboard.html", UserPermissions=UserPermissions)
 
 @UserBP.route('/edit/<SiteID>', methods=['GET', 'POST'])

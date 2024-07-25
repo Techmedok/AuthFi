@@ -13,12 +13,14 @@ def LoggedInUser(view_func):
     def decorated_function(*args, **kwargs):
         if 'key' in session and 'username' in session and 'role' not in session:
             session_key = session['key']
-            username = session['username']
+            # username = session['username']
+            userid = session['userid']
             useragent = request.headers.get('User-Agent')
             ipaddress = request.remote_addr
             user_session = mongo.db.UserSessions.find_one({
                 'SessionKey': session_key,
-                'UserName': username,
+                # 'UserName': username,
+                'UserID': userid,
                 'UserAgent': useragent,
                 'IPAddress': ipaddress,
                 'ExpirationTime': {'$gt': datetime.now(timezone.utc)}
@@ -28,7 +30,7 @@ def LoggedInUser(view_func):
             else:
                 session.clear()
                 flash('Session expired or invalid. Please log in again.', 'error')
-                return redirect(url_for('users.Login', next=request.url))
+                return redirect(url_for('users.Login',next=request.url))
         else:
             flash('Please log in to access this page.', 'error')
             return redirect(url_for('users.Login', next=request.url))
@@ -63,7 +65,7 @@ def AuthFi(SiteID):
     MandatoryPermissions = Site["MandatoryPermissions"]
 
     UserData = {'UserName': User["UserName"], 'Name': CapitalizeText(AES256.Decrypt(User["Name"], AES256.DeriveKey(User["UserID"], User["DateCreated"], "Name")))}
-    SiteData = {'SiteName': CapitalizeText(Site["SiteName"]), 'SiteURL': Site["SiteURL"].strip("https://")}
+    SiteData = {'SiteName': CapitalizeText(Site["SiteName"]), 'SiteURL': Site["SiteURL"].replace("https://", "")}
 
     IsAllPermissionsAvailable = isinstance(MandatoryPermissions, list) and isinstance(UserPermissions, list) and set(MandatoryPermissions).issubset(set(UserPermissions))
 
@@ -85,7 +87,7 @@ def AuthFi(SiteID):
         return render_template("Auth/Auth.html", UserData=UserData, SiteData=SiteData, Permissions=json.dumps(ToggleData), ReturnURL=ReturnURL)
     else:
         # return "1"
-        return redirect(url_for('auth.SessionCreate', ReturnURL=ReturnURL))
+        return redirect(url_for('auth.SessionCreate', ReturnURL=ReturnURL, SiteData=SiteData, SiteID=SiteID))
 
 @AuthBP.route('/authorize', methods=['POST'])
 @LoggedInUser
@@ -109,12 +111,27 @@ def Authorize():
     mongo.db.UserPermissions.update_one({'UserID': UserID}, {'$set': {f'SitePermissions.{SiteID}': Permissions}})
     
     # return "1"
-    return redirect(url_for('auth.SessionCreate', ReturnURL=ReturnURL))
+    return redirect(url_for('auth.SessionCreate', ReturnURL=ReturnURL, SiteID=SiteID))
 
 @AuthBP.route('/session')
 @LoggedInUser
 def SessionCreate():
 
     ReturnURL = request.args.get('ReturnURL') 
+    SiteID = request.args.get('SiteID')
+
+    SiteData = mongo.db.Sites.find_one({'SiteID': SiteID})
+    CallbackURL = SiteData["CallbackURL"]
+
+    if ReturnURL == None:
+        ReturnURL = SiteData["SiteURL"]
+
     print(ReturnURL)
-    return f'{ReturnURL}'
+    print(SiteID)
+    print(CallbackURL)
+
+    SessionKey = "123"
+
+    GoURL = f"{CallbackURL}?SessionKey={SessionKey}&ReturnURL={ReturnURL}"
+
+    return redirect(GoURL)
