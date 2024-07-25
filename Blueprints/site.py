@@ -350,6 +350,18 @@ def SiteDashboard(SiteID):
 
     return ""
 
+@SiteBP.route('/<SiteID>/users', methods=['GET', 'POST'])
+@LoggedInSite
+def SiteUsers(SiteID):
+    username = session['UserNameSite']
+
+    print(SiteID)
+
+    if not Functions.IsSiteVerified(SiteID):
+        return redirect(url_for('site.VerifySite', SiteID=SiteID))
+
+    return ""
+
 @SiteBP.route('/logout')
 @LoggedInSite
 def Logout():
